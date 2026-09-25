@@ -1,0 +1,102 @@
+[
+    {
+        "filename": "package.json",
+        "location": ".",
+        "content": "{ \"name\": \"social-media-supabase-api\", \"version\": \"1.0.0\", \"private\": true, \"main\": \"src/server.js\", \"scripts\": { \"start\": \"node src/server.js\", \"dev\": \"node --watch src/server.js\" }, \"dependencies\": { \"@supabase/supabase-js\": \"^2.45.4\", \"cors\": \"^2.8.5\", \"dotenv\": \"^16.4.5\", \"express\": \"^4.19.2\" } }"
+    },
+    {
+        "filename": ".env.example",
+        "location": ".",
+        "content": "SUPABASE_URL=https://your-project.supabase.co\nSUPABASE_SERVICE_ROLE_KEY=your-service-role-key\nPORT=3000\n"
+    },
+    {
+        "filename": "server.js",
+        "location": "src",
+        "content": "require('dotenv').config(); const app = require('./app'); const port = process.env.PORT || 3000; app.listen(port, () => { console.log(`Server listening on port ${port}`); });"
+    },
+    {
+        "filename": "app.js",
+        "location": "src",
+        "content": "const express = require('express'); const cors = require('cors'); const routes = require('./routes'); const errorHandler = require('./middlewares/errorHandler'); const app = express(); app.use(cors()); app.use(express.json()); app.get('/', (req, res) => { res.json({ message: 'Social media API connected to Supabase.' }); }); app.use('/api', routes); app.use((req, res) => { res.status(404).json({ error: 'Route not found.' }); }); app.use(errorHandler); module.exports = app;"
+    },
+    {
+        "filename": "supabase.js",
+        "location": "src/config",
+        "content": "require('dotenv').config(); const { createClient } = require('@supabase/supabase-js'); const supabaseUrl = process.env.SUPABASE_URL; const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY; if (!supabaseUrl || !supabaseKey) { throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY are required.'); } module.exports = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });"
+    },
+    {
+        "filename": "asyncHandler.js",
+        "location": "src/utils",
+        "content": "module.exports = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);"
+    },
+    {
+        "filename": "ApiError.js",
+        "location": "src/utils",
+        "content": "class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } } module.exports = ApiError;"
+    },
+    {
+        "filename": "errorHandler.js",
+        "location": "src/middlewares",
+        "content": "const ApiError = require('../utils/ApiError'); module.exports = (err, req, res, next) => { if (err instanceof ApiError) { return res.status(err.status).json({ error: err.message }); } const status = err.status || err.statusCode || 500; const message = err.message || 'Internal Server Error'; if (process.env.NODE_ENV !== 'production') { console.error(err); } return res.status(status).json({ error: message }); };"
+    },
+    {
+        "filename": "baseModel.js",
+        "location": "src/models",
+        "content": "const supabase = require('../config/supabase'); const ApiError = require('../utils/ApiError'); const RESERVED_QUERY_PARAMS = new Set(['select', 'limit', 'offset', 'order']); class BaseModel { constructor(tableName, options = {}) { this.table = tableName; this.defaultOrder = options.defaultOrder || 'created_at.desc'; } parsePagination(query = {}) { const limit = Math.min(Math.max(Number(query.limit) || 100, 1), 1000); const offset = Math.max(Number(query.offset) || 0, 0); return { limit, offset }; } applyOrder(queryBuilder, order) { const selectedOrder = order || this.defaultOrder; if (!selectedOrder) return queryBuilder; const [column, direction] = selectedOrder.split('.'); return queryBuilder.order(column, { ascending: direction !== 'desc' }); } async list(query = {}) { const { select = '*', order, ...filters } = query; const { limit, offset } = this.parsePagination(query); let request = supabase.from(this.table).select(select).range(offset, offset + limit - 1); request = this.applyOrder(request, order); for (const [column, value] of Object.entries(filters)) { if (!RESERVED_QUERY_PARAMS.has(column)) { request = request.eq(column, value); } } const { data, error } = await request; if (error) throw new ApiError(400, error.message); return data; } async findById(id, select = '*') { const { data, error } = await supabase.from(this.table).select(select).eq('id', id).maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, `${this.table} record not found.`); return data; } async findOne(filters = {}, select = '*') { let request = supabase.from(this.table).select(select); for (const [column, value] of Object.entries(filters)) { request = request.eq(column, value); } const { data, error } = await request.maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, `${this.table} record not found.`); return data; } async create(payload = {}) { const { data, error } = await supabase.from(this.table).insert(payload).select().single(); if (error) throw new ApiError(400, error.message); return data; } async updateById(id, payload = {}) { const { data, error } = await supabase.from(this.table).update(payload).eq('id', id).select().maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, `${this.table} record not found.`); return data; } async deleteById(id) { const { data, error } = await supabase.from(this.table).delete().eq('id', id).select('id').maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, `${this.table} record not found.`); return { deleted: true, id }; } } module.exports = BaseModel;"
+    },
+    {
+        "filename": "profileModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class ProfileModel extends BaseModel { constructor() { super('profiles', { defaultOrder: 'created_at.desc' }); } } module.exports = new ProfileModel();"
+    },
+    {
+        "filename": "groupModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class GroupModel extends BaseModel { constructor() { super('groups', { defaultOrder: 'created_at.desc' }); } } module.exports = new GroupModel();"
+    },
+    {
+        "filename": "groupMemberModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); const supabase = require('../config/supabase'); const ApiError = require('../utils/ApiError'); class GroupMemberModel extends BaseModel { constructor() { super('group_members', { defaultOrder: 'joined_at.asc' }); } async findByKey(groupId, userId, select = '*') { const { data, error } = await supabase.from(this.table).select(select).eq('group_id', groupId).eq('user_id', userId).maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, 'group_members record not found.'); return data; } async updateByKey(groupId, userId, payload = {}) { const { data, error } = await supabase.from(this.table).update(payload).eq('group_id', groupId).eq('user_id', userId).select().maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, 'group_members record not found.'); return data; } async deleteByKey(groupId, userId) { const { data, error } = await supabase.from(this.table).delete().eq('group_id', groupId).eq('user_id', userId).select('group_id, user_id').maybeSingle(); if (error) throw new ApiError(400, error.message); if (!data) throw new ApiError(404, 'group_members record not found.'); return { deleted: true, groupId, userId }; } } module.exports = new GroupMemberModel();"
+    },
+    {
+        "filename": "postModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class PostModel extends BaseModel { constructor() { super('posts', { defaultOrder: 'created_at.desc' }); } } module.exports = new PostModel();"
+    },
+    {
+        "filename": "commentModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class CommentModel extends BaseModel { constructor() { super('comments', { defaultOrder: 'created_at.desc' }); } } module.exports = new CommentModel();"
+    },
+    {
+        "filename": "reactionModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class ReactionModel extends BaseModel { constructor() { super('reactions', { defaultOrder: 'created_at.desc' }); } } module.exports = new ReactionModel();"
+    },
+    {
+        "filename": "notificationModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class NotificationModel extends BaseModel { constructor() { super('notifications', { defaultOrder: 'created_at.desc' }); } } module.exports = new NotificationModel();"
+    },
+    {
+        "filename": "messageModel.js",
+        "location": "src/models",
+        "content": "const BaseModel = require('./baseModel'); class MessageModel extends BaseModel { constructor() { super('messages', { defaultOrder: 'created_at.desc' }); } } module.exports = new MessageModel();"
+    },
+    {
+        "filename": "crudRouter.js",
+        "location": "src/routes",
+        "content": "const express = require('express'); const asyncHandler = require('../utils/asyncHandler'); function createCrudRouter(model) { const router = express.Router(); const listHandler = asyncHandler(async (req, res) => { const data = await model.list(req.query); res.json(data); }); const getByIdHandler = asyncHandler(async (req, res) => { const data = await model.findById(req.params.id, req.query.select || '*'); res.json(data); }); const createHandler = asyncHandler(async (req, res) => { const data = await model.create(req.body); res.status(201).json(data); }); const updateHandler = asyncHandler(async (req, res) => { const data = await model.updateById(req.params.id, req.body); res.json(data); }); const deleteHandler = asyncHandler(async (req, res) => { const data = await model.deleteById(req.params.id); res.json(data); }); router.get('/', listHandler); router.get('/:id', getByIdHandler); router.post('/', createHandler); router.put('/:id', updateHandler); router.patch('/:id', updateHandler); router.delete('/:id', deleteHandler); return router; } module.exports = createCrudRouter;"
+    },
+    {
+        "filename": "groupMemberRoutes.js",
+        "location": "src/routes",
+        "content": "const express = require('express'); const groupMemberModel = require('../models/groupMemberModel'); const asyncHandler = require('../utils/asyncHandler'); const router = express.Router(); const listHandler = asyncHandler(async (req, res) => { const data = await groupMemberModel.list(req.query); res.json(data); }); const getByKeyHandler = asyncHandler(async (req, res) => { const data = await groupMemberModel.findByKey(req.params.groupId, req.params.userId, req.query.select || '*'); res.json(data); }); const createHandler = asyncHandler(async (req, res) => { const data = await groupMemberModel.create(req.body); res.status(201).json(data); }); const updateHandler = asyncHandler(async (req, res) => { const data = await groupMemberModel.updateByKey(req.params.groupId, req.params.userId, req.body); res.json(data); }); const deleteHandler = asyncHandler(async (req, res) => { const data = await groupMemberModel.deleteByKey(req.params.groupId, req.params.userId); res.json(data); }); router.get('/', listHandler); router.get('/:groupId/:userId', getByKeyHandler); router.post('/', createHandler); router.put('/:groupId/:userId', updateHandler); router.patch('/:groupId/:userId', updateHandler); router.delete('/:groupId/:userId', deleteHandler); module.exports = router;"
+    },
+    {
+        "filename": "index.js",
+        "location": "src/routes",
+        "content": "const express = require('express'); const createCrudRouter = require('./crudRouter'); const groupMemberRoutes = require('./groupMemberRoutes'); const profileModel = require('../models/profileModel'); const groupModel = require('../models/groupModel'); const postModel = require('../models/postModel'); const commentModel = require('../models/commentModel'); const reactionModel = require('../models/reactionModel'); const notificationModel = require('../models/notificationModel'); const messageModel = require('../models/messageModel'); const router = express.Router(); router.use('/profiles', createCrudRouter(profileModel)); router.use('/groups', createCrudRouter(groupModel)); router.use('/group-members', groupMemberRoutes); router.use('/posts', createCrudRouter(postModel)); router.use('/comments', createCrudRouter(commentModel)); router.use('/reactions', createCrudRouter(reactionModel)); router.use('/notifications', createCrudRouter(notificationModel)); router.use('/messages', createCrudRouter(messageModel)); module.exports = router;"
+    }
+]
